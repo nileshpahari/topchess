@@ -1,0 +1,111 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String   @id @default(uuid())
+  username      String   @unique
+  name          String?
+  email         String   @unique
+  provider      AuthProvider
+  password      String?
+  rating        Int      @default(1200)
+  gamesAsWhite  Game[]   @relation("GamesAsWhite")
+  gamesAsBlack  Game[]   @relation("GamesAsBlack")
+  gamesWon Game[] @relation("GamesWon")
+  createdAt     DateTime @default(now())
+  lastLogin     DateTime?
+  updatedAt DateTime @updatedAt
+
+  @@index([rating])
+}
+
+model Game {
+  id            String     @id @default(uuid())
+  whitePlayerId String
+  blackPlayerId String
+  whitePlayer   User       @relation("GamesAsWhite", fields: [whitePlayerId], references: [id])
+  blackPlayer   User       @relation("GamesAsBlack", fields: [blackPlayerId], references: [id])
+  mode			GameMode
+  whiteRating     Int
+  blackRating     Int
+  whiteRatingChange Int?
+  blackRatingChange Int?
+  // NOTE: maybe remove it later
+  winnerId String?
+  winner   User? @relation("GamesWon", fields: [winnerId], references: [id])
+
+  status        GameStatus
+  result        GameResult?
+  timeControl   TimeControl
+  startingFen   String     @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") // default value for the startingFen
+  currentFen    String?
+  startAt       DateTime   @default(now())
+  endAt         DateTime?
+  moves         Move[]
+  openingName   String?
+  event         String?
+  // pgn String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  @@index([status, result])
+  @@index([whitePlayerId])
+  @@index([blackPlayerId])
+  @@index([winnerId])
+}
+
+model Move {
+  id          String   @id @default(uuid())
+  gameId      String
+  game        Game     @relation(fields: [gameId], references: [id])
+  ply		  Int
+  from        String
+  to          String
+  comments    String?
+  before      String
+  after       String
+  timeTaken   Int?     @default(0)
+  san         String
+  // uci String
+  createdAt   DateTime @default(now())
+
+  @@unique([gameId, ply])
+  @@index([gameId])
+}
+
+enum GameStatus {
+  IN_PROGRESS
+  COMPLETED
+  ABANDONED
+}
+
+enum GameResult {
+  WHITE_WINS
+  BLACK_WINS
+  DRAW
+}
+
+enum TimeControl {
+  CLASSICAL
+  RAPID
+  BLITZ
+  BULLET
+}
+
+enum GameMode {
+  CASUAL
+  RATED
+}
+
+enum AuthProvider {
+  EMAIL
+  GOOGLE
+  GITHUB
+  GUEST
+}
