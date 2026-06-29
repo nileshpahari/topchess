@@ -21,6 +21,6 @@
     "prisma": "^5.12.0"
   },
   "exports": {
-    "./client": "./src/index.ts"
+    ".": "./src/index.ts"
   }
 }
