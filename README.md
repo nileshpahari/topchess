@@ -1,159 +1,132 @@
-# Turborepo starter
+# ♟️ TopChess
 
-This Turborepo starter is maintained by the Turborepo core team.
+TopChess is a real-time, multiplayer chess platform built as a **Turborepo monorepo**. It provides live gameplay with matchmaking, time controls, in-game chat, and ELO ratings.
 
-## Using this example
+## Key Features
 
-Run the following command:
+- **Real-Time Multiplayer** — WebSocket-driven live gameplay with instant move broadcasting and spectator support.
+- **Matchmaking** — Queue-based matchmaking by time control; games start automatically when two players match.
+- **Server-Side Move Validation** — `chess.js` validates every move on the server, preventing illegal plays.
+- **Multiple Time Controls** — Bullet (1 min), Blitz (5 min), Rapid (10 min), and Classical (30 min).
+- **Game Modes** — Casual and Rated play with guest account support.
+- **ELO Rating System** — Player ratings (default 1200) with per-game rating changes tracked for both players.
+- **In-Game Chat** — Real-time chat messages within active games, with database persistence.
+- **OAuth Authentication** — Sign in with Google or GitHub, or play as a guest with JWT-based sessions.
+- **Game State Persistence** — Full game history including every move (FEN, SAN, time taken), opening names, and results stored in PostgreSQL.
 
-```sh
-npx create-turbo@latest
+
+## Installation & Running
+
+
+### Environment Variables
+
+| Variable | Used By | Description |
+|----------|---------|-------------|
+| `DATABASE_URL` | `@repo/db` | PostgreSQL connection string |
+| `GOOGLE_CLIENT_ID` | `http` | Google OAuth client ID |
+| `GOOGLE_CLIENT_SECRET` | `http` | Google OAuth client secret |
+| `GITHUB_CLIENT_ID` | `http` | GitHub OAuth client ID |
+| `GITHUB_CLIENT_SECRET` | `http` | GitHub OAuth client secret |
+| `JWT_SECRET` | `http`, `ws` | Secret for signing JWTs |
+| `COOKIE_SECRET` | `http` | Secret for session cookies |
+| `ALLOWED_HOSTS` | `http`, `ws` | Allowed CORS origins |
+| `CLIENT_URL` | `http` | Frontend URL for OAuth redirects |
+| `AUTH_REDIRECT_URL` | `http` | OAuth callback redirect URL |
+| `NEXT_PUBLIC_BACKEND_URL` | `web` | HTTP API URL |
+| `NEXT_PUBLIC_WS_URL` | `web` | WebSocket URL |
+
+### Setup
+
+```bash
+# Clone the repository
+git clone https://github.com/nileshpahari/topchess.git
+cd topchess
+
+# Install dependencies
+bun install
+
+# Configure environment variables in .env files for each app/package
+
+# Generate Prisma client
+bun run --filter @repo/db db:generate
+
+# Push the database schema (or run migrations)
+bun run --filter @repo/db db:push
 ```
 
-## What's inside?
+### Development
 
-This Turborepo includes the following packages/apps:
+```bash
+# Run all apps in development mode
+bun run dev
 
-### Apps and Packages
-
-- `docs`: a [Next.js](https://nextjs.org/) app
-- `web`: another [Next.js](https://nextjs.org/) app
-- `@repo/ui`: a stub React component library shared by both `web` and `docs` applications
-- `@repo/eslint-config`: `eslint` configurations (includes `eslint-config-next` and `eslint-config-prettier`)
-- `@repo/typescript-config`: `tsconfig.json`s used throughout the monorepo
-
-Each package/app is 100% [TypeScript](https://www.typescriptlang.org/).
-
-### Utilities
-
-This Turborepo has some additional tools already setup for you:
-
-- [TypeScript](https://www.typescriptlang.org/) for static type checking
-- [ESLint](https://eslint.org/) for code linting
-- [Prettier](https://prettier.io) for code formatting
+# Run a specific app
+bunx turbo dev --filter=web    # Frontend        → http://localhost:3000
+bunx turbo dev --filter=http   # HTTP API        → http://localhost:8000
+bunx turbo dev --filter=ws     # WebSocket server → ws://localhost:8080
+```
 
 ### Build
 
-To build all apps and packages, run the following command:
+```bash
+# Build all apps and packages
+bun run build
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo build
+# Build a specific app
+bunx turbo build --filter=web
 ```
 
-Without global `turbo`, use your package manager:
+### Other Commands
 
-```sh
-cd my-turborepo
-npx turbo build
-bun dlx turbo build
-bun exec turbo build
+```bash
+# Lint all apps and packages
+bun run lint
+
+# Type-check all apps and packages
+bun run check-types
+
+# Format code with Prettier
+bun run format
+
+# Open Prisma Studio (database GUI)
+bun run --filter @repo/db db:studio
 ```
 
-You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
+## Project Structure
 
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo build --filter=docs
+```
+topchess/
+├── apps/
+│   ├── web/          # Main chess web application (Next.js, TailwindCSS)
+│   ├── http/         # REST API & auth server (Express)
+│   └── ws/           # WebSocket game server (ws, chess.js)
+│
+├── packages/
+│   ├── db/                  # Prisma schema & client (PostgreSQL)
+│   ├── store/               # Redux Toolkit store (chess board & user state)
+│   ├── ui/                  # Shared React component library
+│   ├── eslint-config/       # Shared ESLint configurations
+│   └── typescript-config/   # Shared TypeScript configurations
+│
+├── turbo.json        # Turborepo pipeline configuration
+├── package.json      # Root workspace configuration
+└── bun.lock          # Bun lockfile
 ```
 
-Without global `turbo`:
+### Apps
 
-```sh
-npx turbo build --filter=docs
-bun exec turbo build --filter=docs
-bun exec turbo build --filter=docs
-```
+| App | Stack | Port | Description |
+|-----|-------|------|-------------|
+| `web` | Next.js, TailwindCSS, Redux, chess.js | 3000 | Main chess UI — play, spectate, chat, view game history |
+| `http` | Express | 8000 | REST API for auth (Google/GitHub/Guest OAuth) and game listings |
+| `ws` | ws, chess.js| 8080 | Real-time game engine — matchmaking, move validation, time controls, chat |
 
-### Develop
+### Packages
 
-To develop all apps and packages, run the following command:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo dev
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo dev
-bun exec turbo dev
-bun exec turbo dev
-```
-
-You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo dev --filter=web
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo dev --filter=web
-bun exec turbo dev --filter=web
-bun exec turbo dev --filter=web
-```
-
-### Remote Caching
-
-> [!TIP]
-> Vercel Remote Cache is free for all plans. Get started today at [vercel.com](https://vercel.com/signup?utm_source=remote-cache-sdk&utm_campaign=free_remote_cache).
-
-Turborepo can use a technique known as [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching) to share cache artifacts across machines, enabling you to share build caches with your team and CI/CD pipelines.
-
-By default, Turborepo will cache locally. To enable Remote Caching you will need an account with Vercel. If you don't have an account you can [create one](https://vercel.com/signup?utm_source=turborepo-examples), then enter the following commands:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed (recommended):
-
-```sh
-cd my-turborepo
-turbo login
-```
-
-Without global `turbo`, use your package manager:
-
-```sh
-cd my-turborepo
-npx turbo login
-bun exec turbo login
-bun exec turbo login
-```
-
-This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
-
-Next, you can link your Turborepo to your Remote Cache by running the following command from the root of your Turborepo:
-
-With [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation) installed:
-
-```sh
-turbo link
-```
-
-Without global `turbo`:
-
-```sh
-npx turbo link
-bun exec turbo link
-bun exec turbo link
-```
-
-## Useful Links
-
-Learn more about the power of Turborepo:
-
-- [Tasks](https://turborepo.dev/docs/crafting-your-repository/running-tasks)
-- [Caching](https://turborepo.dev/docs/crafting-your-repository/caching)
-- [Remote Caching](https://turborepo.dev/docs/core-concepts/remote-caching)
-- [Filtering](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters)
-- [Configuration Options](https://turborepo.dev/docs/reference/configuration)
-- [CLI Usage](https://turborepo.dev/docs/reference/command-line-reference)
+| Package | Description |
+|---------|-------------|
+| `@repo/db` | Prisma ORM with PostgreSQL — defines all the models
+| `@repo/store` | Redux Toolkit store with slices for chess board state and user auth |
+| `@repo/ui` | Shared React component library consumed by the web app |
+| `@repo/eslint-config` | ESLint flat configs |
+| `@repo/typescript-config` | Shared `tsconfig.json` presets |
