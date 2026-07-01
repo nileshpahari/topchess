@@ -70,10 +70,8 @@
   * {
     @apply border-border;
   }
-
   body {
     @apply bg-background text-foreground;
-    font-family: Arial, Helvetica, sans-serif;
   }
 }
 
@@ -82,12 +80,13 @@
 }
 
 @layer utilities {
+  /* Hide scrollbar for Chrome, Safari and Opera */
   .no-scrollbar::-webkit-scrollbar {
-    display: none;
+      display: none;
   }
-
+ /* Hide scrollbar for IE, Edge and Firefox */
   .no-scrollbar {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
+      -ms-overflow-style: none;  /* IE and Edge */
+      scrollbar-width: none;  /* Firefox */
+}
 }
