@@ -1,0 +1,21 @@
+{
+  "name": "@repo/store",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "exports": {
+    "./useUser": "./src/hooks/useUser.ts",
+    "./user": "./src/slices/user.ts",
+    "./chessBoard": "./src/slices/chessBoard.ts",
+    "./store": "./src/store.ts",
+    "./hooks": "./src/hooks.ts"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@reduxjs/toolkit": "^2.11.2",
+    "chess.js": "^1.0.0-beta.8",
+    "react-redux": "^9.2.0"
+  }
+}
