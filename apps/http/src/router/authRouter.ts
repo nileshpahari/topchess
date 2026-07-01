@@ -14,9 +14,9 @@ const cookieConfig: CookieOptions = {
 };
 
 const CLIENT_URL =
-  process.env.AUTH_REDIRECT_URL ?? "http://localhost:5173/game/random";
+  process.env.AUTH_REDIRECT_URL ?? "http://localhost:3000/game/random";
 
-const CLIENT = "http://localhost:3000/";
+const CLIENT = process.env.CLIENT_URL ?? "http://localhost:3000/";
 
 if (!process.env.JWT_SECRET) {
   throw new Error("JWT_SECRET must be set in environment variables");
@@ -32,6 +32,14 @@ interface AuthUser {
 
 function createToken(id: string, username: string, isGuest: boolean) {
   return jwt.sign({ id, username, isGuest }, JWT_SECRET, { expiresIn: "1d" });
+}
+
+function toAuthUser(user: { id: string; username: string; provider?: string }) {
+  return {
+    id: user.id,
+    username: user.username,
+    isGuest: user.provider === "GUEST",
+  };
 }
 
 const router = Router();
@@ -69,25 +77,19 @@ router.post("/guest", async (_req: Request, res: Response) => {
 router.get("/refresh", async (req: Request, res: Response) => {
   try {
     if (req.user) {
-      const user = req.user as AuthUser;
+      const user = toAuthUser(req.user as { id: string; username: string; provider?: string });
 
       const token = createToken(user.id, user.username, false);
       res.cookie("jwt", token, cookieConfig);
 
-      res.json({
-        success: true,
-        msg: "token refreshed successfully",
-      });
+      res.json(user);
     } else if (req.cookies && req.cookies.guest) {
       const decoded = jwt.verify(req.cookies.guest, JWT_SECRET) as AuthUser;
 
       const token = createToken(decoded.id, decoded.username, true);
 
       res.cookie("guest", token, cookieConfig);
-      res.json({
-        success: true,
-        msg: "token refreshed successfully",
-      });
+      res.json(decoded);
     } else {
       res.status(401).json({ success: false, message: "Unauthorized" });
     }
