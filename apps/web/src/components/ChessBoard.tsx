@@ -58,6 +58,7 @@ export const ChessBoard = memo(
     board,
     socket,
     setBoard,
+    readOnly = false,
   }: {
     myColor: Color;
     gameId: string;
@@ -78,6 +79,7 @@ export const ChessBoard = memo(
       color: Color;
     } | null)[][];
     socket: WebSocket;
+    readOnly?: boolean;
   }) => {
     console.log('chessboard reloaded');
 
@@ -232,6 +234,9 @@ export const ChessBoard = memo(
                       <div
                         onClick={() => {
                           if (!started) {
+                            return;
+                          }
+                          if (readOnly) {
                             return;
                           }
                           if (userSelectedMoveIndex !== null) {

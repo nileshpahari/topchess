@@ -73,6 +73,10 @@ export class Game {
     }
   }
 
+  isPlayer(userId: string) {
+    return userId === this.player1UserId || userId === this.player2UserId;
+  }
+
   seedMoves(
     moves: {
       id: string;

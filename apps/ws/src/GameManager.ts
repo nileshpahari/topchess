@@ -9,6 +9,7 @@ import {
   GAME_ADDED,
   GAME_ENDED,
   EXIT_GAME,
+  CHAT_MESSAGE,
 } from "./messages";
 import { Game } from "./Game";
 import db from "./db";
@@ -32,11 +33,13 @@ export class GameManager {
   private games: Game[];
   private pendingGameIds: Map<TimeControl, string>;
   private users: User[];
+  private lastChatMessageAt: Map<string, number>;
 
   constructor() {
     this.games = [];
     this.pendingGameIds = new Map<TimeControl, string>();
     this.users = [];
+    this.lastChatMessageAt = new Map();
   }
 
   addUser(user: User) {
@@ -149,11 +152,48 @@ export class GameManager {
           }
         }
 
+        if (message.type === CHAT_MESSAGE) {
+          const gameId = message.payload?.gameId;
+          const content = typeof message.payload?.message === "string"
+            ? message.payload.message.trim()
+            : "";
+          const game = this.games.find((candidate) => candidate.gameId === gameId);
+
+          if (!game || !game.isPlayer(user.userId) || !content || content.length > 300) {
+            user.socket.send(JSON.stringify({
+              type: GAME_ALERT,
+              payload: { message: "Unable to send chat message" },
+            }));
+            return;
+          }
+
+          const now = Date.now();
+          if (now - (this.lastChatMessageAt.get(user.id) ?? 0) < 500) {
+            return;
+          }
+          this.lastChatMessageAt.set(user.id, now);
+
+          const chatMessage = await db.chatMessage.create({
+            data: { gameId, senderId: user.userId, message: content },
+          });
+          socketManager.broadcast(gameId, JSON.stringify({
+            type: CHAT_MESSAGE,
+            payload: {
+              id: chatMessage.id,
+              gameId,
+              senderId: user.userId,
+              senderUsername: user.isGuest ? "Guest" : user.username,
+              message: chatMessage.message,
+              createdAt: chatMessage.createdAt,
+            },
+          }));
+        }
+
         if (message.type === EXIT_GAME) {
           const gameId = message.payload?.gameId;
           const game = this.games.find((game) => game.gameId === gameId);
 
-          if (game) {
+          if (game && game.isPlayer(user.userId)) {
             await game.exitGame(user);
             this.removeGame(game.gameId);
           }
@@ -176,6 +216,11 @@ export class GameManager {
               },
               blackPlayer: true,
               whitePlayer: true,
+              chatMessages: {
+                orderBy: { createdAt: "asc" },
+                take: 100,
+                include: { sender: true },
+              },
             },
           });
 
@@ -225,6 +270,15 @@ export class GameManager {
                     username: gameFromDb.whitePlayer.username,
                     isGuest: gameFromDb.whitePlayer.provider === "GUEST",
                   },
+                  role: "spectator",
+                  chatMessages: gameFromDb.chatMessages.map((chat) => ({
+                    id: chat.id,
+                    gameId: chat.gameId,
+                    senderId: chat.senderId,
+                    senderUsername: chat.sender.provider === "GUEST" ? "Guest" : chat.sender.username,
+                    message: chat.message,
+                    createdAt: chat.createdAt,
+                  })),
                 },
               }),
             );
@@ -263,6 +317,15 @@ export class GameManager {
                 },
                 player1TimeConsumed: availableGame.getPlayer1TimeConsumed(),
                 player2TimeConsumed: availableGame.getPlayer2TimeConsumed(),
+                role: availableGame.isPlayer(user.userId) ? "player" : "spectator",
+                chatMessages: gameFromDb.chatMessages.map((chat) => ({
+                  id: chat.id,
+                  gameId: chat.gameId,
+                  senderId: chat.senderId,
+                  senderUsername: chat.sender.provider === "GUEST" ? "Guest" : chat.sender.username,
+                  message: chat.message,
+                  createdAt: chat.createdAt,
+                })),
               },
             }),
           );

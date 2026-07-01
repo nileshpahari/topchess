@@ -11,6 +11,8 @@ import { useParams, useRouter } from 'next/navigation';
 import MovesTable from '../components/MovesTable';
 import { useAuthStatus, useUser } from '@repo/store/useUser';
 import { UserAvatar } from '../components/UserAvatar';
+import { GameChat, type ChatMessage } from '../components/GameChat';
+import { setUser } from '@repo/store/user';
 
 // TODO: Move together, there's code repetition here
 export const INIT_GAME = 'init_game';
@@ -26,6 +28,7 @@ export const USER_TIMEOUT = 'user_timeout';
 export const GAME_TIME = 'game_time';
 export const GAME_ENDED = 'game_ended';
 export const EXIT_GAME = 'exit_game';
+export const CHAT_MESSAGE = 'chat_message';
 export enum Result {
   WHITE_WINS = 'WHITE_WINS',
   BLACK_WINS = 'BLACK_WINS',
@@ -92,10 +95,14 @@ export const Game = () => {
     useState<TimeControl>('RAPID');
   const [currentTimeControl, setCurrentTimeControl] =
     useState<TimeControl>('RAPID');
+  const [role, setRole] = useState<'player' | 'spectator'>('player');
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [activePanel, setActivePanel] = useState<'moves' | 'chat'>('moves');
   const userSelectedMoveIndex = useAppSelector(
     (state) => state.chessBoard.userSelectedMoveIndex,
   );
   const userSelectedMoveIndexRef = useRef(userSelectedMoveIndex);
+  const guestAuthStartedRef = useRef(false);
 
   useEffect(() => {
     userSelectedMoveIndexRef.current = userSelectedMoveIndex;
@@ -103,9 +110,23 @@ export const Game = () => {
 
   useEffect(() => {
     if (authStatus === "succeeded" && !user) {
-      window.location.href = '/login';
+      if (guestAuthStartedRef.current) return;
+      guestAuthStartedRef.current = true;
+      fetch(`${process.env.NEXT_PUBLIC_BACKEND_URL ?? 'http://localhost:8000'}/auth/guest`, {
+        method: 'POST',
+        credentials: 'include',
+      })
+        .then((response) => {
+          if (!response.ok) throw new Error('Guest authentication failed');
+          return response.json();
+        })
+        .then((guest) => dispatch(setUser(guest)))
+        .catch((error) => {
+          console.error('Failed to create spectator session', error);
+          window.location.href = '/login';
+        });
     }
-  }, [authStatus, user]);
+  }, [authStatus, dispatch, user]);
 
   useEffect(() => {
     if (!socket) {
@@ -123,6 +144,8 @@ export const Game = () => {
           setBoard(chess.board());
           setStarted(true);
           setCurrentTimeControl(message.payload.timeControl ?? selectedTimeControl);
+          setRole('player');
+          setChatMessages([]);
           router.push(`/game/${message.payload.gameId}`);
           setGameMetadata({
             blackPlayer: message.payload.blackPlayer,
@@ -193,11 +216,19 @@ export const Game = () => {
           setPlayer1TimeConsumed(message.payload.player1TimeConsumed);
           setPlayer2TimeConsumed(message.payload.player2TimeConsumed);
           setStarted(true);
+          setRole(message.payload.role ?? 'player');
+          setChatMessages(message.payload.chatMessages ?? []);
 
           message.payload.moves.map((x: Move) => {
             chess.move(getMoveInput(x));
           });
           dispatch(setMoves(message.payload.moves));
+          break;
+
+        case CHAT_MESSAGE:
+          setChatMessages((current) => current.some((item) => item.id === message.payload.id)
+            ? current
+            : [...current, message.payload]);
           break;
 
         case GAME_TIME:
@@ -283,10 +314,11 @@ export const Game = () => {
       )}
       {started && (
         <div className="justify-center flex pt-4 text-white">
-          {(user.id === gameMetadata?.blackPlayer?.id ? 'b' : 'w') ===
-          chess.turn()
-            ? 'Your turn'
-            : "Opponent's turn"}
+          {role === 'spectator'
+            ? 'Watching live'
+            : (user.id === gameMetadata?.blackPlayer?.id ? 'b' : 'w') === chess.turn()
+              ? 'Your turn'
+              : "Opponent's turn"}
         </div>
       )}
       <div className="justify-center flex">
@@ -319,6 +351,7 @@ export const Game = () => {
                         setBoard={setBoard}
                         socket={socket}
                         board={board}
+                        readOnly={role === 'spectator'}
                       />
                     </div>
                   </div>
@@ -382,11 +415,37 @@ export const Game = () => {
                 </div>
               ) : (
                 <div className="p-8 flex justify-center w-full">
-                  <ExitGameModel onClick={() => handleExit()} />
+                  {role === 'player' && <ExitGameModel onClick={() => handleExit()} />}
                 </div>
               )}
               <div>
-                <MovesTable />
+                {started && (
+                  <div className="grid grid-cols-2 border-b border-[#484644] px-2">
+                    {(['moves', 'chat'] as const).map((panel) => (
+                      <button
+                        key={panel}
+                        type="button"
+                        onClick={() => setActivePanel(panel)}
+                        className={`min-h-10 border-b-2 px-3 text-sm font-semibold capitalize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-600 ${activePanel === panel ? 'border-green-600 text-white' : 'border-transparent text-[#C3C3C0] hover:text-white'}`}
+                      >
+                        {panel}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {activePanel === 'moves' || !started ? (
+                  <MovesTable />
+                ) : (
+                  <GameChat
+                    messages={chatMessages}
+                    canSend={role === 'player'}
+                    currentUserId={user.id}
+                    onSend={(message) => socket.send(JSON.stringify({
+                      type: CHAT_MESSAGE,
+                      payload: { gameId, message },
+                    }))}
+                  />
+                )}
               </div>
             </div>
           </div>

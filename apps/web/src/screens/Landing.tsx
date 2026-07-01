@@ -1,5 +1,6 @@
 import { PlayCard } from '@/components/Card';
 import { Footer } from '@/components/Footer';
+import { OngoingGames } from '@/components/OngoingGames';
 
 export const Landing = () => {
   return (
@@ -14,6 +15,7 @@ export const Landing = () => {
           <PlayCard />
         </div>
       </div>
+      <OngoingGames />
       <div className="mt-32 bg-bgAuxiliary2 text-textMain w-full px-14 py-14 rounded-[36px]">
         <div className="lg:grid grid-cols-[45%,1fr] gap-28">
             <div className="rounded-xl">
