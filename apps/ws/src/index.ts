@@ -36,9 +36,11 @@ wss.on("connection", function connection(ws, req) {
 
   const user = getAuthUser(token, ws);
   if (!user) {
+	  console.error("Invalid auth token");
     ws.close(1008, "Invalid auth token");
     return;
   }
+  console.log("User connected:", user);
 
   gameManager.addUser(user);
 

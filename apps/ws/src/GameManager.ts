@@ -30,21 +30,23 @@ function getTimeControl(value: unknown): TimeControl {
 
 export class GameManager {
   private games: Game[];
-  private pendingGameId: string | null;
+  private pendingGameIds: Map<TimeControl, string>;
   private users: User[];
 
   constructor() {
     this.games = [];
-    this.pendingGameId = null;
+    this.pendingGameIds = new Map<TimeControl, string>();
     this.users = [];
   }
 
   addUser(user: User) {
+	  console.log('Adding user with socket:');
     this.users.push(user);
     this.addHandler(user);
   }
 
   removeUser(socket: WebSocket) {
+	  console.log('Removing user with socket:', socket);
     const user = this.users.find((user) => user.socket === socket);
     if (!user) {
 	  console.error('User not found');
@@ -53,9 +55,11 @@ export class GameManager {
     this.users = this.users.filter((user) => user.socket !== socket);
     socketManager.removeUser(user);
 
-    const pendingGame = this.pendingGameId
-      ? this.games.find((game) => game.gameId === this.pendingGameId)
-      : null;
+    const pendingGame = this.games.find(
+      (game) =>
+        !game.player2UserId &&
+        Array.from(this.pendingGameIds.values()).includes(game.gameId),
+    );
     if (
       pendingGame &&
       pendingGame.player1UserId === user.userId &&
@@ -67,8 +71,10 @@ export class GameManager {
 
   removeGame(gameId: string) {
     this.games = this.games.filter((g) => g.gameId !== gameId);
-    if (this.pendingGameId === gameId) {
-      this.pendingGameId = null;
+    for (const [timeControl, pendingGameId] of this.pendingGameIds.entries()) {
+      if (pendingGameId === gameId) {
+        this.pendingGameIds.delete(timeControl);
+      }
     }
   }
 
@@ -89,12 +95,16 @@ export class GameManager {
 
       try {
         if (message.type === INIT_GAME) {
-          if (this.pendingGameId) {
+          const timeControl = getTimeControl(message.payload?.timeControl);
+          const pendingGameId = this.pendingGameIds.get(timeControl);
+
+          if (pendingGameId) {
             const game = this.games.find(
-              (x) => x.gameId === this.pendingGameId,
+              (x) => x.gameId === pendingGameId,
             );
             if (!game) {
               console.error("Pending game not found?");
+              this.pendingGameIds.delete(timeControl);
               return;
             }
             if (user.userId === game.player1UserId) {
@@ -111,12 +121,11 @@ export class GameManager {
             }
             socketManager.addUser(user, game.gameId);
             await game?.updateSecondPlayer(user.userId);
-            this.pendingGameId = null;
+            this.pendingGameIds.delete(timeControl);
           } else {
-            const timeControl = getTimeControl(message.payload?.timeControl);
             const game = new Game(user.userId, null, timeControl);
             this.games.push(game);
-            this.pendingGameId = game.gameId;
+            this.pendingGameIds.set(timeControl, game.gameId);
             socketManager.addUser(user, game.gameId);
             socketManager.broadcast(
               game.gameId,
@@ -209,10 +218,12 @@ export class GameManager {
                   blackPlayer: {
                     id: gameFromDb.blackPlayer.id,
                     username: gameFromDb.blackPlayer.username,
+                    isGuest: gameFromDb.blackPlayer.provider === "GUEST",
                   },
                   whitePlayer: {
                     id: gameFromDb.whitePlayer.id,
                     username: gameFromDb.whitePlayer.username,
+                    isGuest: gameFromDb.whitePlayer.provider === "GUEST",
                   },
                 },
               }),
@@ -243,10 +254,12 @@ export class GameManager {
                 blackPlayer: {
                   id: gameFromDb.blackPlayer.id,
                   username: gameFromDb.blackPlayer.username,
+                  isGuest: gameFromDb.blackPlayer.provider === "GUEST",
                 },
                 whitePlayer: {
                   id: gameFromDb.whitePlayer.id,
                   username: gameFromDb.whitePlayer.username,
+                  isGuest: gameFromDb.whitePlayer.provider === "GUEST",
                 },
                 player1TimeConsumed: availableGame.getPlayer1TimeConsumed(),
                 player2TimeConsumed: availableGame.getPlayer2TimeConsumed(),

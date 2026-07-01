@@ -26,6 +26,7 @@ function isAuthUser(value: unknown): value is AuthUser {
 export const getAuthUser = (token: string, ws: WebSocket): User | null => {
 	// NOTE: Shouldnt check per req
 	if (!process.env.JWT_SECRET) {
+		console.error("JWT_SECRET must be set for websocket auth");
 		return null;
 	}
 	try {
@@ -35,7 +36,8 @@ export const getAuthUser = (token: string, ws: WebSocket): User | null => {
 		}
 
 		return new User(ws, decoded);
-	} catch {
+	} catch (error) {
+		console.error("Failed to verify websocket auth token", error);
 		return null;
 	}
 };

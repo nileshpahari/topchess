@@ -177,6 +177,8 @@ export class Game {
       db.user.findUniqueOrThrow({ where: { id: this.player2UserId } }),
     ]);
 
+	console.log(whitePlayer, blackPlayer);
+
     const game = await db.game.create({
       data: {
         id: this.gameId,
@@ -411,10 +413,12 @@ export class Game {
           blackPlayer: {
             id: updatedGame.blackPlayer.id,
             username: updatedGame.blackPlayer.username,
+            isGuest: updatedGame.blackPlayer.provider === "GUEST",
           },
           whitePlayer: {
             id: updatedGame.whitePlayer.id,
             username: updatedGame.whitePlayer.username,
+            isGuest: updatedGame.whitePlayer.provider === "GUEST",
           },
         },
       }),
