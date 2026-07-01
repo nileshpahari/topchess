@@ -17,6 +17,7 @@ model User {
   gamesAsWhite  Game[]   @relation("GamesAsWhite")
   gamesAsBlack  Game[]   @relation("GamesAsBlack")
   gamesWon Game[] @relation("GamesWon")
+  chatMessages ChatMessage[]
   createdAt     DateTime @default(now())
   lastLogin     DateTime?
   updatedAt DateTime @updatedAt
@@ -47,6 +48,7 @@ model Game {
   startAt       DateTime   @default(now())
   endAt         DateTime?
   moves         Move[]
+  chatMessages  ChatMessage[]
   openingName   String?
   event         String?
   // pgn String?
@@ -57,6 +59,19 @@ model Game {
   @@index([whitePlayerId])
   @@index([blackPlayerId])
   @@index([winnerId])
+}
+
+model ChatMessage {
+  id        String   @id @default(uuid())
+  gameId    String
+  game      Game     @relation(fields: [gameId], references: [id], onDelete: Cascade)
+  senderId  String
+  sender    User     @relation(fields: [senderId], references: [id])
+  message   String
+  createdAt DateTime @default(now())
+
+  @@index([gameId, createdAt])
+  @@index([senderId])
 }
 
 model Move {
