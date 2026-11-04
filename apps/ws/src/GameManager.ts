@@ -14,7 +14,7 @@ import {
 import { Game } from "./Game";
 import db from "./db";
 import { socketManager, User } from "./SocketManager";
-import { GameStatus, type TimeControl } from "@prisma/client";
+import { GameStatus, type GameMode, type TimeControl } from "@prisma/client";
 
 const TIME_CONTROLS = new Set<TimeControl>([
   "BULLET",
@@ -23,21 +23,37 @@ const TIME_CONTROLS = new Set<TimeControl>([
   "CLASSICAL",
 ]);
 
+const GAME_MODES = new Set<GameMode>(["CASUAL", "RATED"]);
+
 function getTimeControl(value: unknown): TimeControl {
   return typeof value === "string" && TIME_CONTROLS.has(value as TimeControl)
     ? (value as TimeControl)
     : "RAPID";
 }
 
+function getGameMode(value: unknown): GameMode {
+  return typeof value === "string" && GAME_MODES.has(value as GameMode)
+    ? (value as GameMode)
+    : "CASUAL";
+}
+
+/**
+ * Casual and rated players queue separately, so a pending game is keyed by
+ * both. Guests can only ever play casual.
+ */
+function getQueueKey(timeControl: TimeControl, mode: GameMode) {
+  return `${mode}:${timeControl}`;
+}
+
 export class GameManager {
   private games: Game[];
-  private pendingGameIds: Map<TimeControl, string>;
+  private pendingGameIds: Map<string, string>;
   private users: User[];
   private lastChatMessageAt: Map<string, number>;
 
   constructor() {
     this.games = [];
-    this.pendingGameIds = new Map<TimeControl, string>();
+    this.pendingGameIds = new Map<string, string>();
     this.users = [];
     this.lastChatMessageAt = new Map();
   }
@@ -74,9 +90,9 @@ export class GameManager {
 
   removeGame(gameId: string) {
     this.games = this.games.filter((g) => g.gameId !== gameId);
-    for (const [timeControl, pendingGameId] of this.pendingGameIds.entries()) {
+    for (const [queueKey, pendingGameId] of this.pendingGameIds.entries()) {
       if (pendingGameId === gameId) {
-        this.pendingGameIds.delete(timeControl);
+        this.pendingGameIds.delete(queueKey);
       }
     }
   }
@@ -99,7 +115,12 @@ export class GameManager {
       try {
         if (message.type === INIT_GAME) {
           const timeControl = getTimeControl(message.payload?.timeControl);
-          const pendingGameId = this.pendingGameIds.get(timeControl);
+          // Guests have no persistent identity, so they cannot play rated.
+          const mode = user.isGuest
+            ? "CASUAL"
+            : getGameMode(message.payload?.mode);
+          const queueKey = getQueueKey(timeControl, mode);
+          const pendingGameId = this.pendingGameIds.get(queueKey);
 
           if (pendingGameId) {
             const game = this.games.find(
@@ -107,7 +128,7 @@ export class GameManager {
             );
             if (!game) {
               console.error("Pending game not found?");
-              this.pendingGameIds.delete(timeControl);
+              this.pendingGameIds.delete(queueKey);
               return;
             }
             if (user.userId === game.player1UserId) {
@@ -124,11 +145,11 @@ export class GameManager {
             }
             socketManager.addUser(user, game.gameId);
             await game?.updateSecondPlayer(user.userId);
-            this.pendingGameIds.delete(timeControl);
+            this.pendingGameIds.delete(queueKey);
           } else {
-            const game = new Game(user.userId, null, timeControl);
+            const game = new Game(user.userId, null, timeControl, mode);
             this.games.push(game);
-            this.pendingGameIds.set(timeControl, game.gameId);
+            this.pendingGameIds.set(queueKey, game.gameId);
             socketManager.addUser(user, game.gameId);
             socketManager.broadcast(
               game.gameId,
@@ -136,6 +157,7 @@ export class GameManager {
                 type: GAME_ADDED,
                 gameId: game.gameId,
                 timeControl,
+                mode,
               }),
             );
           }
@@ -259,6 +281,10 @@ export class GameManager {
                 payload: {
                   result: gameFromDb.result,
                   status: gameFromDb.status,
+                  reason: gameFromDb.endReason,
+                  mode: gameFromDb.mode,
+                  whiteRatingChange: gameFromDb.whiteRatingChange,
+                  blackRatingChange: gameFromDb.blackRatingChange,
                   moves: gameFromDb.moves,
                   blackPlayer: {
                     id: gameFromDb.blackPlayer.id,
@@ -290,6 +316,7 @@ export class GameManager {
               gameFromDb?.whitePlayerId!,
               gameFromDb?.blackPlayerId!,
               gameFromDb.timeControl,
+              gameFromDb.mode,
               gameFromDb.id,
               gameFromDb.startAt,
             );
@@ -304,6 +331,7 @@ export class GameManager {
               payload: {
                 gameId,
                 timeControl: gameFromDb.timeControl,
+                mode: gameFromDb.mode,
                 moves: gameFromDb.moves,
                 blackPlayer: {
                   id: gameFromDb.blackPlayer.id,

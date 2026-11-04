@@ -11,11 +11,9 @@ import {
 import GameModeComponent from './GameModeComponent';
 
 const chessIcon = '/chess.png';
-const computerIcon = '/computer.png';
 const lightningIcon = '/lightning-bolt.png';
 const friendIcon = '/friendship.png';
 const tournamentIcon = '/trophy.png';
-const variantsIcon = '/strategy.png';
 
 export function PlayCard() {
   const router = useRouter();
@@ -34,18 +32,6 @@ export function PlayCard() {
         router.push('/game/random');
       },
       disabled: false,
-    },
-    {
-      icon: (
-        <img
-          src={computerIcon}
-          className="inline-block mt-1 h-7 w-7"
-          alt="computer"
-        />
-      ),
-      title: 'Computer',
-      description: 'Challenge a bot from easy to master',
-      disabled: true,
     },
     {
       icon: (
@@ -69,18 +55,6 @@ export function PlayCard() {
       ),
       title: 'Tournaments',
       description: 'Join an Arena where anyone can Win',
-      disabled: true,
-    },
-    {
-      icon: (
-        <img
-          src={variantsIcon}
-          className="inline-block mt-1 h-7 w-7"
-          alt="variants"
-        />
-      ),
-      title: 'Chess Variants',
-      description: 'Find Fun New ways to play chess',
       disabled: true,
     },
   ];

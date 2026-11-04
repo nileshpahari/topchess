@@ -3,10 +3,48 @@ import { GAME_ENDED, INIT_GAME, MOVE } from "./messages";
 import db from "./db";
 import { randomUUID } from "crypto";
 import { socketManager, User } from "./SocketManager";
-import type { TimeControl } from "@prisma/client";
+import type { GameMode, TimeControl } from "@prisma/client";
 
 type GAME_STATUS = "IN_PROGRESS" | "COMPLETED" | "ABANDONED";
 type GAME_RESULT = "WHITE_WINS" | "BLACK_WINS" | "DRAW";
+type GAME_END_REASON =
+  | "CHECKMATE"
+  | "STALEMATE"
+  | "DRAW"
+  | "TIMEOUT"
+  | "RESIGNATION"
+  | "ABANDONED";
+
+const ELO_K_FACTOR = 32;
+const ELO_FLOOR = 100;
+
+/**
+ * Standard Elo with K=32. Black's delta is derived from white's rather than
+ * rounded independently, so the exchange is zero-sum in the normal case; the
+ * ELO_FLOOR clamp is the one exception, sparing a player at the floor from
+ * dropping further while the winner still gains.
+ */
+export function getRatingChanges(
+  whiteRating: number,
+  blackRating: number,
+  result: GAME_RESULT,
+) {
+  const expectedWhite =
+    1 / (1 + Math.pow(10, (blackRating - whiteRating) / 400));
+  const scoreWhite = result === "DRAW" ? 0.5 : result === "WHITE_WINS" ? 1 : 0;
+  const delta = Math.round(ELO_K_FACTOR * (scoreWhite - expectedWhite));
+
+  // Clamp at the floor, then report the change that was actually applied.
+  const newWhite = Math.max(ELO_FLOOR, whiteRating + delta);
+  const newBlack = Math.max(ELO_FLOOR, blackRating - delta);
+
+  return {
+    whiteRatingChange: newWhite - whiteRating,
+    blackRatingChange: newBlack - blackRating,
+    newWhiteRating: newWhite,
+    newBlackRating: newBlack,
+  };
+}
 
 const TIME_CONTROL_MS: Record<TimeControl, number> = {
   BULLET: 60 * 1000,
@@ -54,11 +92,13 @@ export class Game {
   private startTime = new Date(Date.now());
   private lastMoveTime = new Date(Date.now());
   private timeControl: TimeControl;
+  public mode: GameMode;
 
   constructor(
     player1UserId: string,
     player2UserId: string | null,
     timeControl: TimeControl = "RAPID",
+    mode: GameMode = "CASUAL",
     gameId?: string,
     startTime?: Date,
   ) {
@@ -67,6 +107,7 @@ export class Game {
     this.board = new Chess();
     this.gameId = gameId ?? randomUUID();
     this.timeControl = timeControl;
+    this.mode = mode;
     if (startTime) {
       this.startTime = startTime;
       this.lastMoveTime = startTime;
@@ -160,6 +201,7 @@ export class Game {
           },
           fen: this.board.fen(),
           timeControl: this.timeControl,
+          mode: this.mode,
           moves: [],
         },
       }),
@@ -181,12 +223,10 @@ export class Game {
       db.user.findUniqueOrThrow({ where: { id: this.player2UserId } }),
     ]);
 
-	console.log(whitePlayer, blackPlayer);
-
     const game = await db.game.create({
       data: {
         id: this.gameId,
-        mode: "CASUAL",
+        mode: this.mode,
         whiteRating: whitePlayer.rating,
         blackRating: blackPlayer.rating,
         timeControl: this.timeControl,
@@ -310,7 +350,13 @@ export class Game {
           ? "WHITE_WINS"
           : "BLACK_WINS";
 
-      await this.endGame("COMPLETED", result);
+      const reason: GAME_END_REASON = this.board.isCheckmate()
+        ? "CHECKMATE"
+        : this.board.isStalemate()
+          ? "STALEMATE"
+          : "DRAW";
+
+      await this.endGame("COMPLETED", result, reason);
     }
 
     this.moveCount++;
@@ -344,6 +390,7 @@ export class Game {
       this.endGame(
         "ABANDONED",
         this.board.turn() === "b" ? "WHITE_WINS" : "BLACK_WINS",
+        "ABANDONED",
       );
     }, 60 * 1000);
   }
@@ -361,12 +408,17 @@ export class Game {
       await this.endGame(
         "COMPLETED",
         turn === "b" ? "WHITE_WINS" : "BLACK_WINS",
+        "TIMEOUT",
       );
       return;
     }
 
     this.moveTimer = setTimeout(() => {
-      this.endGame("COMPLETED", turn === "b" ? "WHITE_WINS" : "BLACK_WINS");
+      this.endGame(
+        "COMPLETED",
+        turn === "b" ? "WHITE_WINS" : "BLACK_WINS",
+        "TIMEOUT",
+      );
     }, timeLeft);
   }
 
@@ -374,10 +426,15 @@ export class Game {
     await this.endGame(
       "ABANDONED",
       user.userId === this.player2UserId ? "WHITE_WINS" : "BLACK_WINS",
+      "RESIGNATION",
     );
   }
 
-  async endGame(status: GAME_STATUS, result: GAME_RESULT) {
+  async endGame(
+    status: GAME_STATUS,
+    result: GAME_RESULT,
+    reason: GAME_END_REASON,
+  ) {
     if (this.result) {
       return;
     }
@@ -386,25 +443,77 @@ export class Game {
     this.clearTimer();
     this.clearMoveTimer();
 
-    const updatedGame = await db.game.update({
-      data: {
-        status,
-        result: result,
-        endAt: new Date(Date.now()),
-      },
-      where: {
-        id: this.gameId,
-      },
-      include: {
-        moves: {
-          orderBy: {
-            ply: "asc",
-          },
+    const winnerId =
+      result === "WHITE_WINS"
+        ? this.player1UserId
+        : result === "BLACK_WINS"
+          ? this.player2UserId
+          : null;
+
+    // Ratings only move in rated games; casual games record a null change.
+    let ratingUpdate: {
+      whiteRatingChange: number;
+      blackRatingChange: number;
+      newWhiteRating: number;
+      newBlackRating: number;
+    } | null = null;
+
+    if (this.mode === "RATED" && this.player2UserId) {
+      const game = await db.game.findUnique({
+        where: { id: this.gameId },
+        select: { whiteRating: true, blackRating: true },
+      });
+
+      if (game) {
+        ratingUpdate = getRatingChanges(
+          game.whiteRating,
+          game.blackRating,
+          result,
+        );
+      }
+    }
+
+    const whitePlayerId = this.player1UserId;
+    const blackPlayerId = this.player2UserId;
+
+    // One transaction so a finished game never lands without its rating change.
+    const [updatedGame] = await db.$transaction([
+      db.game.update({
+        data: {
+          status,
+          result: result,
+          endReason: reason,
+          winnerId,
+          endAt: new Date(Date.now()),
+          whiteRatingChange: ratingUpdate?.whiteRatingChange ?? null,
+          blackRatingChange: ratingUpdate?.blackRatingChange ?? null,
         },
-        blackPlayer: true,
-        whitePlayer: true,
-      },
-    });
+        where: {
+          id: this.gameId,
+        },
+        include: {
+          moves: {
+            orderBy: {
+              ply: "asc",
+            },
+          },
+          blackPlayer: true,
+          whitePlayer: true,
+        },
+      }),
+      ...(ratingUpdate && blackPlayerId
+        ? [
+            db.user.update({
+              where: { id: whitePlayerId },
+              data: { rating: ratingUpdate.newWhiteRating },
+            }),
+            db.user.update({
+              where: { id: blackPlayerId },
+              data: { rating: ratingUpdate.newBlackRating },
+            }),
+          ]
+        : []),
+    ]);
 
     socketManager.broadcast(
       this.gameId,
@@ -413,6 +522,7 @@ export class Game {
         payload: {
           result,
           status,
+          reason,
           moves: updatedGame.moves,
           blackPlayer: {
             id: updatedGame.blackPlayer.id,
@@ -424,6 +534,9 @@ export class Game {
             username: updatedGame.whitePlayer.username,
             isGuest: updatedGame.whitePlayer.provider === "GUEST",
           },
+          mode: this.mode,
+          whiteRatingChange: ratingUpdate?.whiteRatingChange ?? null,
+          blackRatingChange: ratingUpdate?.blackRatingChange ?? null,
         },
       }),
     );
