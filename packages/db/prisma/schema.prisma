@@ -42,6 +42,7 @@ model Game {
 
   status        GameStatus
   result        GameResult?
+  endReason     GameEndReason?
   timeControl   TimeControl
   startingFen   String     @default("rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1") // default value for the startingFen
   currentFen    String?
@@ -103,6 +104,15 @@ enum GameResult {
   WHITE_WINS
   BLACK_WINS
   DRAW
+}
+
+enum GameEndReason {
+  CHECKMATE
+  STALEMATE
+  DRAW
+  TIMEOUT
+  RESIGNATION
+  ABANDONED
 }
 
 enum TimeControl {
