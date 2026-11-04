@@ -1,12 +1,11 @@
 import { Chess, Color, Move, PieceSymbol, Square } from 'chess.js';
-import { MouseEvent, memo, useEffect, useState } from 'react';
-import { MOVE } from '../screens/Game';
+import { MouseEvent, memo, useCallback, useEffect, useRef, useState } from 'react';
+import { MOVE } from '@/lib/game';
 import LetterNotation from './chess-board/LetterNotation';
 import LegalMoveIndicator from './chess-board/LegalMoveIndicator';
 import ChessSquare from './chess-board/ChessSquare';
 import NumberNotation from './chess-board/NumberNotation';
 import { drawArrow } from '../utils/canvas';
-import useWindowSize from '../hooks/useWindowSize';
 import Confetti from 'react-confetti';
 
 import { useAppDispatch, useAppSelector } from '@repo/store/hooks';
@@ -89,6 +88,13 @@ export const ChessBoard = memo(
       (state) => state.chessBoard.userSelectedMoveIndex,
     );
     const moves = useAppSelector((state) => state.chessBoard.moves);
+
+    // Latest moves, for the effect below that must read them without
+    // re-running when they change.
+    const movesRef = useRef(moves);
+    useEffect(() => {
+      movesRef.current = moves;
+    }, [moves]);
     const [lastMove, setLastMove] = useState<{ from: string; to: string } | null>(null);
     const [rightClickedSquares, setRightClickedSquares] = useState<string[]>([]);
     const [arrowStart, setArrowStart] = useState<string | null>(null);
@@ -115,13 +121,13 @@ export const ChessBoard = memo(
       }
     }, [dispatch, myColor]);
 
-    const clearCanvas = () => {
+    const clearCanvas = useCallback(() => {
       setRightClickedSquares([]);
       if (canvas) {
         const ctx = canvas.getContext('2d');
         ctx?.clearRect(0, 0, canvas.width, canvas.height);
       }
-    };
+    }, [canvas]);
 
     const handleRightClick = (squareRep: string) => {
       if (rightClickedSquares.includes(squareRep)) {
@@ -177,11 +183,14 @@ export const ChessBoard = memo(
       } else {
         setLastMove(null);
       }
-    }, [moves]);
+    }, [moves, clearCanvas]);
 
     useEffect(() => {
       if (userSelectedMoveIndex !== null) {
-        const move = moves[userSelectedMoveIndex];
+        const move = movesRef.current[userSelectedMoveIndex];
+        if (!move) {
+          return;
+        }
         setLastMove({
           from: move.from,
           to: move.to,
@@ -190,7 +199,7 @@ export const ChessBoard = memo(
         setBoard(chess.board());
         return;
       }
-    }, [userSelectedMoveIndex]);
+    }, [userSelectedMoveIndex, chess, setBoard]);
 
     useEffect(() => {
       if (userSelectedMoveIndex !== null) {

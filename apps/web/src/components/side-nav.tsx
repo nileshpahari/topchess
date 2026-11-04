@@ -8,7 +8,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/subnav-accordian';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ChevronDownIcon } from '@radix-ui/react-icons';
 import { type LucideIcon } from 'lucide-react';
 import { useUser } from '@repo/store/useUser';
@@ -33,13 +33,21 @@ export function SideNav({ items, setOpen, className }: SideNavProps) {
   const pathname = usePathname();
   const { isOpen } = useSidebar();
   const [openItem, setOpenItem] = useState('');
-  const [lastOpenItem, setLastOpenItem] = useState('');
+
+  // Which accordion item to restore when the sidebar expands again. Refs, not
+  // state: this effect must read the current values without re-running when
+  // they change, which is what left its dependency list incomplete before.
+  const lastOpenItemRef = useRef('');
+  const openItemRef = useRef(openItem);
+  useEffect(() => {
+    openItemRef.current = openItem;
+  }, [openItem]);
 
   useEffect(() => {
     if (isOpen) {
-      setOpenItem(lastOpenItem);
+      setOpenItem(lastOpenItemRef.current);
     } else {
-      setLastOpenItem(openItem);
+      lastOpenItemRef.current = openItemRef.current;
       setOpenItem('');
     }
   }, [isOpen]);

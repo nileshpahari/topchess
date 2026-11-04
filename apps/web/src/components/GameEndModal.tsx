@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { GameResult, Player, Result } from '@/screens/Game';
+import { GameResult, Player, Result } from '@/lib/game';
 
 const WhiteKing = '/wk.png';
 const BlackKing = '/bk.png';
@@ -21,14 +21,19 @@ const GameEndModal: React.FC<ModalProps> = ({
     setIsOpen(false);
   };
 
+  const formatRatingChange = (change: number) =>
+    change > 0 ? `+${change}` : `${change}`;
+
   const PlayerDisplay = ({
     player,
     gameResult,
     isWhite,
+    ratingChange,
   }: {
     player?: Player;
     gameResult: Result;
     isWhite: boolean;
+    ratingChange?: number | null;
   }) => {
     const imageSrc = isWhite ? WhiteKing : BlackKing;
     const borderColor =
@@ -49,6 +54,13 @@ const GameEndModal: React.FC<ModalProps> = ({
           <p className="text-white truncate w-24" title={getPlayerName(player)}>
             {getPlayerName(player)}
           </p>
+          {typeof ratingChange === 'number' && (
+            <p
+              className={`text-sm font-semibold ${ratingChange >= 0 ? 'text-green-400' : 'text-red-400'}`}
+            >
+              {formatRatingChange(ratingChange)}
+            </p>
+          )}
         </div>
       </div>
     );
@@ -85,9 +97,19 @@ const GameEndModal: React.FC<ModalProps> = ({
                 <p className="text-xl text-white text-center">by {gameResult.by}</p>
               </div>
               <div className="flex flex-row justify-between items-center bg-gray-700 rounded-lg px-4 py-6">
-                <PlayerDisplay isWhite={true} player={whitePlayer} gameResult={gameResult.result} />
+                <PlayerDisplay
+                  isWhite={true}
+                  player={whitePlayer}
+                  gameResult={gameResult.result}
+                  ratingChange={gameResult.whiteRatingChange}
+                />
                 <div className="text-white text-2xl font-bold">vs</div>
-                <PlayerDisplay isWhite={false} player={blackPlayer} gameResult={gameResult.result} />
+                <PlayerDisplay
+                  isWhite={false}
+                  player={blackPlayer}
+                  gameResult={gameResult.result}
+                  ratingChange={gameResult.blackRatingChange}
+                />
               </div>
             </div>
             <div className="px-6 py-4 bg-gray-900 text-right rounded-b-lg">

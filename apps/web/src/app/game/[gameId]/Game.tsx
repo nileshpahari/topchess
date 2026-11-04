@@ -3,41 +3,38 @@
 "use client";
 
 import { useEffect, useRef, useState } from 'react';
-import { Button } from '../components/Button';
-import { ChessBoard, getMoveInput, isPromoting } from '../components/ChessBoard';
-import { useSocket } from '../hooks/useSocket';
 import { Chess, Move } from 'chess.js';
 import { useParams, useRouter } from 'next/navigation';
-import MovesTable from '../components/MovesTable';
 import { useAuthStatus, useUser } from '@repo/store/useUser';
-import { UserAvatar } from '../components/UserAvatar';
-import { GameChat, type ChatMessage } from '../components/GameChat';
 import { setUser } from '@repo/store/user';
-
-// TODO: Move together, there's code repetition here
-export const INIT_GAME = 'init_game';
-export const MOVE = 'move';
-export const OPPONENT_DISCONNECTED = 'opponent_disconnected';
-export const GAME_OVER = 'game_over';
-export const JOIN_ROOM = 'join_room';
-export const GAME_JOINED = 'game_joined';
-export const GAME_NOT_FOUND = 'game_not_found';
-export const GAME_ALERT = 'game_alert';
-export const GAME_ADDED = 'game_added';
-export const USER_TIMEOUT = 'user_timeout';
-export const GAME_TIME = 'game_time';
-export const GAME_ENDED = 'game_ended';
-export const EXIT_GAME = 'exit_game';
-export const CHAT_MESSAGE = 'chat_message';
-export enum Result {
-  WHITE_WINS = 'WHITE_WINS',
-  BLACK_WINS = 'BLACK_WINS',
-  DRAW = 'DRAW',
-}
-export interface GameResult {
-  result: Result;
-  by: string;
-}
+import { useAppDispatch, useAppSelector } from '@repo/store/hooks';
+import { appendMove, setMoves } from '@repo/store/chessBoard';
+import { Button } from '@/components/Button';
+import { ChessBoard, getMoveInput, isPromoting } from '@/components/ChessBoard';
+import MovesTable from '@/components/MovesTable';
+import { UserAvatar } from '@/components/UserAvatar';
+import { GameChat, type ChatMessage } from '@/components/GameChat';
+import GameEndModal from '@/components/GameEndModal';
+import ExitGameModel from '@/components/ExitGameModel';
+import { ShareGame } from '@/components/ShareGame';
+import { Waitopponent } from '@/components/ui/waitopponent';
+import { useSocket } from '@/hooks/useSocket';
+import {
+  INIT_GAME,
+  MOVE,
+  GAME_OVER,
+  JOIN_ROOM,
+  GAME_JOINED,
+  GAME_NOT_FOUND,
+  GAME_ADDED,
+  USER_TIMEOUT,
+  GAME_TIME,
+  GAME_ENDED,
+  EXIT_GAME,
+  CHAT_MESSAGE,
+  GameResult,
+  Metadata,
+} from '@/lib/game';
 
 const TIME_CONTROLS = [
   { label: 'Bullet', value: 'BULLET' },
@@ -48,29 +45,29 @@ const TIME_CONTROLS = [
 
 type TimeControl = (typeof TIME_CONTROLS)[number]['value'];
 
+const GAME_MODES = [
+  { label: 'Casual', value: 'CASUAL' },
+  { label: 'Rated', value: 'RATED' },
+] as const;
+
+type GameMode = (typeof GAME_MODES)[number]['value'];
+
+// Mirrors GameEndReason in the Prisma schema; the server always sends one.
+const END_REASON_LABELS: Record<string, string> = {
+  CHECKMATE: 'Checkmate',
+  STALEMATE: 'Stalemate',
+  DRAW: 'Draw',
+  TIMEOUT: 'Timeout',
+  RESIGNATION: 'Resignation',
+  ABANDONED: 'Abandonment',
+};
+
 const TIME_CONTROL_MS: Record<TimeControl, number> = {
   BULLET: 60 * 1000,
   BLITZ: 5 * 60 * 1000,
   RAPID: 10 * 60 * 1000,
   CLASSICAL: 30 * 60 * 1000,
 };
-
-export interface Player {
-  id: string;
-  username: string;
-  isGuest: boolean;
-}
-import { useAppDispatch, useAppSelector } from '@repo/store/hooks';
-import { appendMove, setMoves } from '@repo/store/chessBoard';
-import GameEndModal from '@/components/GameEndModal';
-import { Waitopponent } from '@/components/ui/waitopponent';
-import { ShareGame } from '../components/ShareGame';
-import ExitGameModel from '@/components/ExitGameModel';
-
-export interface Metadata {
-  blackPlayer: Player;
-  whitePlayer: Player;
-}
 
 export const Game = () => {
   const socket = useSocket();
@@ -95,6 +92,17 @@ export const Game = () => {
     useState<TimeControl>('RAPID');
   const [currentTimeControl, setCurrentTimeControl] =
     useState<TimeControl>('RAPID');
+  const [selectedMode, setSelectedMode] = useState<GameMode>('CASUAL');
+  const [currentMode, setCurrentMode] = useState<GameMode>('CASUAL');
+
+  // socket.onmessage is installed once per socket, so it closes over the
+  // selection as it was then; read the latest values through refs instead.
+  const selectedTimeControlRef = useRef(selectedTimeControl);
+  const selectedModeRef = useRef(selectedMode);
+  useEffect(() => {
+    selectedTimeControlRef.current = selectedTimeControl;
+    selectedModeRef.current = selectedMode;
+  }, [selectedTimeControl, selectedMode]);
   const [role, setRole] = useState<'player' | 'spectator'>('player');
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [activePanel, setActivePanel] = useState<'moves' | 'chat'>('moves');
@@ -138,12 +146,14 @@ export const Game = () => {
         case GAME_ADDED:
           setAdded(true);
           setGameID((p)=>message.gameId);
-          setCurrentTimeControl(message.timeControl ?? selectedTimeControl);
+          setCurrentTimeControl(message.timeControl ?? selectedTimeControlRef.current);
+          setCurrentMode(message.mode ?? selectedModeRef.current);
           break;
         case INIT_GAME:
           setBoard(chess.board());
           setStarted(true);
-          setCurrentTimeControl(message.payload.timeControl ?? selectedTimeControl);
+          setCurrentTimeControl(message.payload.timeControl ?? selectedTimeControlRef.current);
+          setCurrentMode(message.payload.mode ?? selectedModeRef.current);
           setRole('player');
           setChatMessages([]);
           router.push(`/game/${message.payload.gameId}`);
@@ -182,20 +192,13 @@ export const Game = () => {
           break;
 
         case GAME_ENDED:
-          let wonBy;
-          switch (message.payload.status) {
-            case 'COMPLETED':
-              wonBy = message.payload.result !== 'DRAW' ? 'CheckMate' : 'Draw';
-              break;
-            case 'PLAYER_EXIT':
-              wonBy = 'Player Exit';
-              break;
-            default:
-              wonBy = 'Timeout';
-          }
           setResult({
             result: message.payload.result,
-            by: wonBy,
+            by:
+              END_REASON_LABELS[message.payload.reason] ??
+              (message.payload.result === 'DRAW' ? 'Draw' : 'Unknown'),
+            whiteRatingChange: message.payload.whiteRatingChange ?? null,
+            blackRatingChange: message.payload.blackRatingChange ?? null,
           });
           chess.reset();
           setStarted(false);
@@ -213,6 +216,7 @@ export const Game = () => {
             whitePlayer: message.payload.whitePlayer,
           });
           setCurrentTimeControl(message.payload.timeControl ?? 'RAPID');
+          setCurrentMode(message.payload.mode ?? 'CASUAL');
           setPlayer1TimeConsumed(message.payload.player1TimeConsumed);
           setPlayer2TimeConsumed(message.payload.player2TimeConsumed);
           setStarted(true);
@@ -270,7 +274,7 @@ export const Game = () => {
       }, 100);
       return () => clearInterval(interval);
     }
-  }, [started, gameMetadata, user]);
+  }, [started, chess]);
 
   const getTimer = (timeConsumed: number) => {
     const timeLeftMs = TIME_CONTROL_MS[currentTimeControl] - timeConsumed;
@@ -313,12 +317,18 @@ export const Game = () => {
         ></GameEndModal>
       )}
       {started && (
-        <div className="justify-center flex pt-4 text-white">
-          {role === 'spectator'
-            ? 'Watching live'
-            : (user.id === gameMetadata?.blackPlayer?.id ? 'b' : 'w') === chess.turn()
-              ? 'Your turn'
-              : "Opponent's turn"}
+        <div className="flex flex-col items-center gap-1 pt-4 text-white">
+          <div>
+            {role === 'spectator'
+              ? 'Watching live'
+              : (user.id === gameMetadata?.blackPlayer?.id ? 'b' : 'w') === chess.turn()
+                ? 'Your turn'
+                : "Opponent's turn"}
+          </div>
+          <div className="text-xs uppercase tracking-wide text-[#A5A5A2]">
+            {currentMode === 'RATED' ? 'Rated' : 'Casual'} ·{' '}
+            {currentTimeControl.toLowerCase()}
+          </div>
         </div>
       )}
       <div className="justify-center flex">
@@ -384,8 +394,9 @@ export const Game = () => {
                             <button
                               key={timeControl.value}
                               type="button"
+                              aria-pressed={selectedTimeControl === timeControl.value}
                               onClick={() => setSelectedTimeControl(timeControl.value)}
-                              className={`rounded px-3 py-2 text-sm text-white transition-colors ${
+                              className={`min-h-10 rounded px-3 py-2 text-sm text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 ${
                                 selectedTimeControl === timeControl.value
                                   ? 'bg-green-600'
                                   : 'bg-bgAuxiliary2 hover:bg-bgAuxiliary1'
@@ -395,6 +406,42 @@ export const Game = () => {
                             </button>
                           ))}
                         </div>
+                        <div
+                          role="group"
+                          aria-label="Game mode"
+                          className="flex gap-2"
+                        >
+                          {GAME_MODES.map((mode) => {
+                            const isRatedForGuest =
+                              mode.value === 'RATED' && user.isGuest;
+                            return (
+                              <button
+                                key={mode.value}
+                                type="button"
+                                disabled={isRatedForGuest}
+                                aria-pressed={selectedMode === mode.value}
+                                title={
+                                  isRatedForGuest
+                                    ? 'Sign in to play rated games'
+                                    : undefined
+                                }
+                                onClick={() => setSelectedMode(mode.value)}
+                                className={`min-h-10 rounded px-4 py-2 text-sm text-white transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-green-500 disabled:cursor-not-allowed disabled:opacity-50 ${
+                                  selectedMode === mode.value
+                                    ? 'bg-green-600'
+                                    : 'bg-bgAuxiliary2 hover:bg-bgAuxiliary1'
+                                }`}
+                              >
+                                {mode.label}
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {user.isGuest && (
+                          <p className="text-xs text-[#A5A5A2]">
+                            Guests play casual games only.
+                          </p>
+                        )}
                         <Button
                           onClick={() => {
                             socket.send(
@@ -402,6 +449,7 @@ export const Game = () => {
                                 type: INIT_GAME,
                                 payload: {
                                   timeControl: selectedTimeControl,
+                                  mode: selectedMode,
                                 },
                               }),
                             );

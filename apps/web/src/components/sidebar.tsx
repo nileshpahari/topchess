@@ -1,3 +1,5 @@
+'use client';
+
 import { useEffect } from 'react';
 import { SideNav } from '@/components/side-nav';
 import { UpperNavItems, LowerNavItems } from '@/components/constants/side-nav';

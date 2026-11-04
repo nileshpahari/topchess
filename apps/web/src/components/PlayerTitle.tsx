@@ -1,4 +1,4 @@
-import { Player } from "../screens/Game"
+import { Player } from "@/lib/game"
 
 interface PlayerTitleProps {
     player: Player | undefined
